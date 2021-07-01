@@ -22,7 +22,9 @@ def yield_url(months,adults):
         for m in months: 
             flexible_dates = flexible_dates + f'&flexible_trip_dates%5B%5D={m}'
         flexible_dates = flexible_dates + '&date_picker_type=flexible_dates'
-    return base+room_types+flexible_dates
+    # currency
+    currency = '&display_currency=EUR'
+    return base+room_types+flexible_dates+currency
 
 
 def parse_page(soup):

@@ -1,3 +1,4 @@
+
 import re
 import time
 import requests
@@ -7,48 +8,6 @@ from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 from bs4 import BeautifulSoup
 from helpers import parse_page, yield_url
-
-# beautiful soup used with pregenerated urls
-# https://www.airbnb.com/s/Rethimnon--Greece/homes?pagination_search=true&items_offset=20&room_types%5B%5D=Entire%20home%2Fapt&room_types%5B%5D=Private%20room&room_types%5B%5D=Hotel%20room&search_type=filter_change
-
-pages = []
-months = ['july','august']
-adults = 6
-counter = 0    
-max_offset = 300
-offset_step = 20 # dont change
-
-if __name__ == '__main__':
-
-    for i in range(0,max_offset,offset_step):        
-        
-        # paginated urls
-        base = yield_url(months,adults)
-        url = base + f'&pagination_search=true&items_offset={str(i)}'
-        try :
-            page = requests.get(url)
-            soup = BeautifulSoup(page.content, 'html.parser')
-            pages.append(soup)
-            counter += 1
-            print(f'> parsed page {str(counter)}({round(((i+offset_step)/max_offset)*100,2)}%)')
-        except Exception as e:
-            print(f'error during : {url}' )
-
-    # given a page (soup), parse all of its listings
-    df_list = [parse_page(page) for page in pages]
-    # concat individual dfs into a dataframe
-    df = pd.concat(df_list).reset_index(drop=True)
-    print(f'parsed df shape : {df.shape}')
-    # add custom column to determine uniqueness of a listing
-    df['unique_string'] = (df.title + df.reviews_price)
-    print(f'"unique_string" distinct items : {df.unique_string.nunique()}')
-    # drop columns based on custom column from above
-    df.drop_duplicates(subset=['unique_string'],inplace=True)
-    print(f'final df shape : {df.shape}')
-    
-
-df.to_clipboard()
-df.shape
 
 # ---------------------------------------------------------------------------------    
 # ---------------------------------------------------------------------------------
@@ -60,13 +19,14 @@ df.shape
 CHROMEDRIVER = '/home/takis/Desktop/sckool/chromedriver_linux64/chromedriver'
 URL = 'https://www.airbnb.com/s/Rethimnon--Greece/homes'
 
-options = webdriver.ChromeOptions()
-options.add_argument('--ignore-certificate-errors')
-options.add_argument('--incognito')
-options.add_argument('--headless')
+# options = webdriver.ChromeOptions()
+# options.add_argument('--ignore-certificate-errors')
+# options.add_argument('--incognito')
+# options.add_argument('--headless')
 
 driver = webdriver.Chrome(CHROMEDRIVER)
 
+df = pd.read_csv('data/listings.csv')
 home_url_list = df.functional_url.tolist()
 
 parsing_dict = {'title':'_xcsyj0',
@@ -89,9 +49,12 @@ parsing_dict = {'title':'_xcsyj0',
 
 listing_details = {}
 
-for hurl in home_url_list:
+# len(home_url_list)
 
-    print(hurl)
+for hurl in home_url_list[:5]:
+
+    # hurl = 'airbnb.com/rooms/23030014?adults=4&children=0&infants=0&check_in=2021-07-09&check_out=2021-07-11&previous_page_section_name=1000&translate_ugc=false&federated_search_id=114a3f24-d12e-45ff-9933-1aff00c022b8'
+    # print(hurl)
     
     url = 'http://'+hurl
     # page = requests.get(url)
@@ -99,9 +62,11 @@ for hurl in home_url_list:
 
     current_listing = {}
     driver.get(url)
-    time.sleep(2) # Let the user actually see something!
+    page_source = driver.page_source
+    soup = BeautifulSoup(page_source, 'lxml')
+    time.sleep(3) # Let the user actually see something!
     driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-    time.sleep(2) # Let the user actually see something!
+    time.sleep(3) # Let the user actually see something!
     
     # price
     try:
@@ -128,9 +93,12 @@ for hurl in home_url_list:
         current_listing['title'] = 'NA'
 
     # subtitle
-    boo = [x.text for x in soup.find('div',class_=parsing_dict['subtitle']).find_all('span') if x.text != ' · ']
-    current_listing['subtitle'] = "-".join(boo)
-
+    try:
+        boo = [x.text for x in soup.find('div',class_=parsing_dict['subtitle']).find_all('span') if x.text != ' · ']
+        current_listing['subtitle'] = "-".join(boo)
+    except:
+        current_listing['subtitle'] = 'NA'
+        
     # about place - OR in the url &modal=DESCRIPTION
     try:
         # driver.find_element_by_xpath(parsing_dict['about_place_open']).click()
@@ -155,6 +123,7 @@ for hurl in home_url_list:
         
     # # about_location
     # driver.find_element_by_xpath(parsing_dict['about_location_open']).click()
+    # driver.find_elements_by_xpath("//*[contains(text(), 'Show more')]")[4].click()
     # # current_listing['about_location'] = driver.find_element_by_xpath(parsing_dict['about_location_parse']).text
     # current_listing['about_location'] = BeautifulSoup(driver.page_source,'lxml').text.replace('\n',' ')
     # # driver.find_element_by_xpath(parsing_dict['about_location_close']).click()
@@ -167,23 +136,26 @@ for hurl in home_url_list:
     # driver.find_element_by_xpath(parsing_dict['house_rules_close']).click()
     # webdriver.ActionChains(driver).send_keys(Keys.ESCAPE).perform()    
     
-    # cancellation policy
-    # driver.find_elements_by_xpath("//*[contains(text(), 'Show more')]")[8].click()
+    # cancellation policy - /rooms/23030014/cancellation-policy?
+    try:
+        driver.find_elements_by_xpath("//*[contains(text(), 'Show more')]")[8].click()
+        xpath_cp = '/html/body/div[10]/section/div/div/div[3]/div/div/div/div/section/div'
+        current_listing['cancellation_policy'] = driver.find_element_by_xpath(xpath_cp).text.replace('\n',' ')
+    except:
+        current_listing['cancellation_policy'] = ' NA'
 
     # map coordinates
-    url_string = str(driver.page_source)
+    url_string = str(page_source)
     p_lat = re.compile(r'"lat":([-0-9.]+),')
     p_lng = re.compile(r'"lng":([-0-9.]+),')
     try:
         lat = p_lat.findall(url_string)[0]
         lng = p_lng.findall(url_string)[0]
+        current_listing['coordindates'] = (lat,lng)
     except:
-        lat = lon = -999
-    current_listing['coordindates'] = (lat,lng)
-
+        current_listing['coordindates'] = (-999,-999)
+    
     # calendar
-    page_source = driver.page_source
-    soup = BeautifulSoup(page_source, 'lxml')
     oto = soup.find_all('table', parsing_dict['calendar'])
     current_month = datetime.now().month
 
@@ -220,9 +192,10 @@ for hurl in home_url_list:
 
     listing_details[hurl] = current_listing
     
-    
 dt = pd.DataFrame().from_dict(listing_details,orient='index').sort_values(by=['availability_rate'])
 print(f'dt.shape:{dt.shape}')
+dt.tail(20)
+dt.to_clipboard()
 
-# driver.quit()
+driver.quit()
 
